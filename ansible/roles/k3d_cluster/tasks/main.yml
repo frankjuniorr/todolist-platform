@@ -26,6 +26,24 @@
       # Nada de --disable=traefik: o Traefik embutido do k3s e usado como
       # esta. Instalar um segundo ingress controller faria os dois brigarem
       # pelo mesmo Service via helm-controller do k3s.
+      #
+      # O CoreDNS do k3s nasce com `forward . /etc/resolv.conf`, que dentro do
+      # container aponta para o proxy de DNS embutido do Docker. Em redes onde
+      # esse proxy nao responde -- ou onde o resolver real do host (roteador,
+      # AdGuardHome etc.) nao aceita consultas vindas da sub-rede do Docker --
+      # toda resolucao de nome dentro do cluster trava, e o sintoma so aparece
+      # bem mais tarde, no Argo CD ("dial tcp: lookup github.com ... server
+      # misbehaving"), longe da causa real.
+      #
+      # TENTATIVA DESCARTADA: fazer `kubectl patch` no ConfigMap coredns
+      # depois do cluster criado. Parece funcionar, mas o k3s tem um
+      # "deploy controller" proprio (objectset.rio.cattle.io) que reconcilia
+      # os addons nucleo continuamente -- ele reverte o patch manual na
+      # proxima vez que o Deployment do coredns reinicia. A unica forma que
+      # sobrevive e configurar o `--resolv-conf` do proprio k3s ANTES do
+      # cluster existir, o que exige montar um arquivo customizado no node.
+      - "--volume={{ role_path }}/files/resolv.conf:/etc/k3d-resolv.conf@server:*;agent:*"
+      - "--k3s-arg=--resolv-conf=/etc/k3d-resolv.conf@server:*;agent:*"
       - --wait
       - --timeout=300s
   when: not cluster_exists
@@ -36,28 +54,6 @@
     kubectl wait --for=condition=Ready nodes --all --timeout=180s
     --context k3d-{{ cluster_name }}
   changed_when: false
-
-# O CoreDNS do k3s nasce com `forward . /etc/resolv.conf`, que dentro do
-# container aponta para o proxy de DNS embutido do Docker. Em redes onde esse
-# proxy nao responde -- ou onde o resolver real do host (roteador, AdGuardHome
-# etc.) nao aceita consultas vindas da sub-rede do Docker -- toda resolucao de
-# nome dentro do cluster trava. O sintoma so aparece bem mais tarde, no Argo CD
-# ("dial tcp: lookup github.com ... server misbehaving"), longe da causa real.
-# Fixar em resolvedores publicos e mais reprodutivel do que herdar o que o
-# host tiver de configuracao de DNS -- o mesmo raciocinio que ja pina versao
-# de k3s, chart, etc.
-- name: Corrigir o CoreDNS para nao depender do resolv.conf do host
-  ansible.builtin.shell: |
-    set -euo pipefail
-    CURRENT=$(kubectl --context k3d-{{ cluster_name }} -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}')
-    FIXED=$(printf '%s' "$CURRENT" | sed 's#forward \. /etc/resolv\.conf#forward . 1.1.1.1 8.8.8.8#')
-    PATCH=$(jq -n --arg corefile "$FIXED" '{"data":{"Corefile":$corefile}}')
-    kubectl --context k3d-{{ cluster_name }} -n kube-system patch configmap coredns --type merge -p "$PATCH"
-    kubectl --context k3d-{{ cluster_name }} -n kube-system rollout restart deployment coredns
-    kubectl --context k3d-{{ cluster_name }} -n kube-system rollout status deployment coredns --timeout=60s
-  args: { executable: /bin/bash }
-  when: not cluster_exists
-  changed_when: true
 
 - name: Pre-carregar imagens criticas no cluster
   ansible.builtin.shell: |
