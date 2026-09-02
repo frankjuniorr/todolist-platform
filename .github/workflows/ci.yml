@@ -45,8 +45,14 @@ jobs:
         # nao do nosso codigo. pip com versao pinada evita depender do lockfile
         # dela, e usa a mesma versao ja validada localmente.
         run: |
+          export PATH="$HOME/.local/bin:$PATH"
           python3 -m pip install --user "ansible-lint==26.8.0"
-          python3 -m ansiblelint ansible/
+          # ansible-lint so traz ansible-core, nao a colecao ansible.posix que
+          # o preflight usa (ansible.posix.sysctl). O setup.sh instala o
+          # pacote "ansible" completo, que ja vem com ela -- aqui, sem essa
+          # colecao, o syntax-check falha com "unknown-module".
+          ansible-galaxy collection install ansible.posix
+          ansible-lint ansible/
 
   terraform:
     runs-on: ubuntu-latest
