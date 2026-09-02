@@ -1,0 +1,43 @@
+# ABOUTME: terraform apply da unica camada imperativa: namespaces + Argo CD + Vault.
+---
+- name: Terraform init
+  ansible.builtin.command:
+    cmd: terraform init -input=false -upgrade
+    chdir: "{{ terraform_dir }}"
+  changed_when: false
+
+- name: Terraform apply
+  ansible.builtin.command:
+    cmd: >-
+      terraform apply -input=false -auto-approve
+      -var=kube_context=k3d-{{ cluster_name }}
+      -var=base_domain={{ base_domain }}
+      -var=gitops_repo_url={{ gitops_repo_url }}
+      -var=gitops_repo_revision={{ gitops_repo_revision }}
+    chdir: "{{ terraform_dir }}"
+  register: _tf
+  changed_when: "'0 added, 0 changed, 0 destroyed' not in _tf.stdout"
+
+- name: Aguardar o Argo CD ficar disponivel
+  ansible.builtin.command: >-
+    kubectl -n {{ argocd_namespace }} rollout status deploy/argocd-server --timeout=300s
+  changed_when: false
+
+- name: Ler a senha inicial do admin do Argo CD
+  ansible.builtin.command: >-
+    kubectl -n {{ argocd_namespace }} get secret argocd-initial-admin-secret
+    -o jsonpath={.data.password}
+  register: _argo_pw
+  changed_when: false
+  failed_when: false
+
+- name: Guardar as credenciais do Argo CD para o operador
+  ansible.builtin.copy:
+    dest: "{{ repo_dir }}/.argocd-admin"
+    mode: "0600"
+    content: |
+      url: https://argocd.{{ base_domain }}
+      user: admin
+      password: {{ _argo_pw.stdout | b64decode }}
+  when: _argo_pw.rc == 0 and _argo_pw.stdout | length > 0
+  no_log: true

@@ -1,0 +1,37 @@
+# ABOUTME: App-of-Apps. Este e o unico manifesto que o Ansible aplica no cluster.
+# ABOUTME: A partir daqui o Argo CD descobre e gerencia tudo sozinho, a partir do Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    # Sem este finalizer, deletar a Application raiz deixaria orfaos todos os
+    # recursos filhos no cluster.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: PLACEHOLDER_REPO_URL   # substituido pelo Ansible a partir do inventario
+    targetRevision: main
+    path: gitops/apps
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      # O primeiro reconcile de um cluster novo falha por natureza: CRDs, webhooks
+      # e Secrets aparecem em ordens que nao da para prever. A estrategia nao e
+      # evitar a falha, e torna-la auto-recuperavel.
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

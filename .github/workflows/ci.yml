@@ -1,0 +1,99 @@
+# ABOUTME: Valida tudo o que e possivel validar sem subir um cluster.
+name: ci
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+# Permissao minima por workflow. O default do repositorio pode ser mais amplo;
+# declarar aqui garante que um action comprometido nao consiga escrever.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks precisa do historico completo: um secret removido no ultimo
+          # commit continua recuperavel em qualquer commit anterior.
+          fetch-depth: 0
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+
+      - name: shellcheck
+        run: sudo apt-get install -y shellcheck && shellcheck scripts/*.sh
+
+      - name: actionlint
+        uses: raven-actions/actionlint@v2
+
+      - name: ansible-lint
+        uses: ansible/ansible-lint@v24
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.10.3" }
+      - run: terraform -chdir=terraform init -backend=false
+      - run: terraform -chdir=terraform fmt -check -recursive
+      - run: terraform -chdir=terraform validate
+      - uses: aquasecurity/tfsec-action@v1.0.3
+        with: { working_directory: terraform }
+
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with: { version: "v3.16.3" }
+
+      - run: helm lint charts/todolist
+
+      - name: kubeconform
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+          # -ignore-missing-schemas: os CRDs (Cluster do CNPG, ExternalSecret)
+          # nao existem no catalogo do kubeconform. Sem a flag, todo CR virava
+          # erro e o check nunca ficaria verde.
+          helm template t charts/todolist \
+            | kubeconform -strict -ignore-missing-schemas -summary
+
+      - name: kube-linter
+        uses: stackrox/kube-linter-action@v1
+        with: { directory: charts/todolist }
+
+      - name: manifests do gitops
+        run: kubeconform -strict -ignore-missing-schemas -summary gitops/
+
+  # O invariante que a aplicacao exige e que nenhum linter conhece.
+  invariantes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with: { version: "v3.16.3" }
+      - name: exatamente um CronJob no chart
+        run: |
+          n=$(helm template t charts/todolist | grep -c '^kind: CronJob$' || true)
+          if [ "$n" -ne 1 ]; then
+            echo "::error::o chart renderiza $n CronJobs; app.py exige exatamente 1" >&2
+            exit 1
+          fi
+      - name: nenhum secret montado com subPath
+        run: |
+          # Montagens com subPath NAO sao atualizadas pelo kubelet quando o
+          # Secret muda -- a rotacao pararia de funcionar em silencio.
+          if helm template t charts/todolist | grep -q 'subPath'; then
+            echo "::error::subPath encontrado; secrets montados assim nao recebem atualizacao" >&2
+            exit 1
+          fi

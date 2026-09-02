@@ -1,0 +1,28 @@
+# --- NUNCA COMMITAR ------------------------------------------------------------
+# Senha do ansible-vault. Commitar isto transformaria a cifragem em teatro.
+.vault-pass
+
+# Unseal key e root token do Vault, em claro.
+.vault-keys.json
+
+# Credenciais geradas no bootstrap.
+.argocd-admin
+.app-credentials
+
+# --- Estado e artefatos --------------------------------------------------------
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.tfvars
+.rendered-*.yaml
+.k3d-storage/
+kubeconfig*
+
+# --- Ruido ---------------------------------------------------------------------
+*.retry
+__pycache__/
+.DS_Store
+docs/evidence/*.png.tmp
+
+# NAO ignorado de proposito:
+#   ansible/group_vars/all/vault.yml  -- cifrado com ansible-vault, entra no Git.

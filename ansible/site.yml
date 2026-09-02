@@ -1,0 +1,36 @@
+# ABOUTME: Playbook de bootstrap (Day-0). Executa em fases ate o Argo CD assumir.
+# ABOUTME: A fronteira e clara -- Ansible faz o que acontece uma vez; Argo CD, o resto.
+---
+- name: Bootstrap do ambiente todolist
+  hosts: localhost
+  gather_facts: true
+  tags: [bootstrap]
+
+  roles:
+    # 1. O ambiente da maquina aguenta? Falhar aqui e barato; falhar no meio do
+    #    cluster e caro e o sintoma nao aponta para a causa.
+    - role: preflight
+      tags: [preflight]
+
+    # 2. O cluster k3d, com as portas 80/443 publicadas no load balancer.
+    - role: k3d_cluster
+      tags: [cluster]
+
+    # 3. Terraform: SO namespaces, Argo CD e Vault. Tudo o mais e GitOps.
+    - role: platform
+      tags: [platform, terraform]
+
+    # 4. init + unseal + auth/kubernetes. Irredutivelmente imperativo -- nenhuma
+    #    ferramenta declarativa consegue destrancar um cofre.
+    - role: vault_bootstrap
+      tags: [vault]
+
+    # 5. Valores-semente no kv-v2. A partir daqui o Vault e a fonte da verdade.
+    - role: seed_secrets
+      tags: [secrets]
+
+    # 6. O App-of-Apps. Ultimo de proposito: quando o Argo CD comeca a
+    #    reconciliar, o Vault ja responde -- e o ExternalSecret da wave -3
+    #    encontra um cofre aberto em vez de um 503.
+    - role: gitops_bootstrap
+      tags: [gitops]

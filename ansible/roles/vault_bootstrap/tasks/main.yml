@@ -1,0 +1,160 @@
+# ABOUTME: init, unseal e configuracao do auth/kubernetes do Vault.
+# ABOUTME: A parte irredutivelmente imperativa -- nao existe "destrancar declarativo".
+---
+# O helm_release do Vault usa wait = false de proposito. O readiness probe do
+# chart e `vault status`, que retorna exit 2 enquanto o cofre esta selado -- e o
+# cofre so e destrancado por este role. Com wait = true o terraform apply ficaria
+# preso ate o timeout esperando um unseal que o Ansible ainda nao teve chance de
+# fazer. Deadlock literal, e a mesma razao pela qual o Vault nao pode ser uma
+# Application do Argo CD.
+#
+# Por isso esperamos phase=Running, NAO condition=Ready.
+- name: Aguardar o pod do Vault entrar em Running
+  ansible.builtin.shell: |
+    for i in $(seq 1 60); do
+      phase=$(kubectl -n {{ vault_namespace }} get pod vault-0 \
+              -o jsonpath='{.status.phase}' 2>/dev/null || true)
+      [ "$phase" = "Running" ] && exit 0
+      sleep 5
+    done
+    echo "vault-0 nao entrou em Running" >&2
+    exit 1
+  changed_when: false
+
+- name: Verificar se o Vault ja foi inicializado
+  ansible.builtin.command: >-
+    kubectl -n {{ vault_namespace }} exec vault-0 -- vault status -format=json
+  register: _status
+  changed_when: false
+  failed_when: false
+  # `vault status` retorna exit 2 quando selado e 0 quando aberto -- os dois sao
+  # respostas validas aqui, entao failed_when: false e obrigatorio.
+
+- name: Interpretar o estado do Vault
+  ansible.builtin.set_fact:
+    vault_initialized: "{{ (_status.stdout | from_json).initialized | default(false) }}"
+    vault_sealed: "{{ (_status.stdout | from_json).sealed | default(true) }}"
+  when: _status.stdout | length > 0
+
+- name: Inicializar o Vault
+  ansible.builtin.command: >-
+    kubectl -n {{ vault_namespace }} exec vault-0 --
+    vault operator init -key-shares=1 -key-threshold=1 -format=json
+  register: _init
+  when: not (vault_initialized | default(false))
+  changed_when: true
+  no_log: true
+  # 1 share / 1 threshold e uma decisao consciente de ambiente de demonstracao.
+  # Em producao seriam 5/3 distribuidas entre pessoas diferentes. Aqui o objetivo
+  # e que a maquina se destranque sozinha, e um esquema de 5/3 automatizado num
+  # unico host teria a mesma seguranca de 1/1 com mais cerimonia.
+
+- name: Persistir as chaves para o operador
+  ansible.builtin.copy:
+    dest: "{{ vault_keys_file }}"
+    content: "{{ _init.stdout }}"
+    mode: "0600"
+  when: _init.changed
+  no_log: true
+  # Gitignored. Se este arquivo se perder e o Vault reiniciar, o cofre fica
+  # selado para sempre e a unica saida e apagar o PVC e recomecar.
+
+- name: Carregar as chaves do disco
+  ansible.builtin.slurp:
+    src: "{{ vault_keys_file }}"
+  register: _keys_raw
+  no_log: true
+
+- name: Extrair unseal key e root token
+  ansible.builtin.set_fact:
+    vault_unseal_key: "{{ (_keys_raw.content | b64decode | from_json).unseal_keys_b64[0] }}"
+    vault_root_token: "{{ (_keys_raw.content | b64decode | from_json).root_token }}"
+  no_log: true
+
+- name: Destrancar o Vault
+  ansible.builtin.command: >-
+    kubectl -n {{ vault_namespace }} exec vault-0 --
+    vault operator unseal {{ vault_unseal_key }}
+  changed_when: true
+  no_log: true
+
+# --- Unsealer -----------------------------------------------------------------
+# O Vault re-sela a cada restart do pod. Sem KMS de cloud nao ha auto-unseal, e
+# um cluster que precisa de intervencao manual apos um reboot nao e
+# auto-suficiente. O unsealer e um Deployment, nao um CronJob: a granularidade
+# minima do CronJob e 1 minuto e queremos reacao em segundos.
+#
+# TRADE-OFF A DECLARAR EM VOZ ALTA: a unseal key vive num Secret do mesmo cluster
+# que ela protege. O Vault fica "tao seguro quanto o etcd". O auto-unseal de
+# cloud faz conceitualmente a mesma coisa, mas delega a raiz de confianca a um
+# dominio DIFERENTE -- e aqui nao existe outro dominio. Reconhecer isso vale
+# mais do que fingir que o desenho e seguro.
+- name: Criar o Secret com a unseal key
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl -n {{ vault_namespace }} create secret generic vault-unseal \
+      --from-literal=key='{{ vault_unseal_key }}' \
+      --dry-run=client -o yaml | kubectl apply -f -
+  args: { executable: /bin/bash }
+  changed_when: true
+  no_log: true
+
+- name: Renderizar o manifesto do unsealer
+  ansible.builtin.template:
+    src: unsealer.yaml.j2
+    dest: "{{ repo_dir }}/.rendered-unsealer.yaml"
+    mode: "0644"
+
+- name: Instalar o unsealer
+  ansible.builtin.command: >-
+    kubectl -n {{ vault_namespace }} apply -f {{ repo_dir }}/.rendered-unsealer.yaml
+  changed_when: true
+
+# --- Configuracao do cofre ----------------------------------------------------
+- name: Habilitar kv-v2, auth/kubernetes, policy e role
+  ansible.builtin.shell: |
+    set -euo pipefail
+    exec_vault() {
+      kubectl -n {{ vault_namespace }} exec -i vault-0 -- env VAULT_TOKEN='{{ vault_root_token }}' "$@"
+    }
+
+    # kv-v2: versionamento de secrets. Uma rotacao errada pode ser desfeita.
+    exec_vault vault secrets enable -path={{ vault_kv_mount }} -version=2 kv 2>/dev/null || true
+
+    exec_vault vault auth enable kubernetes 2>/dev/null || true
+
+    # O Vault valida os tokens de ServiceAccount falando com o proprio API server.
+    # Rodando DENTRO do cluster, ele usa o CA e o host do ambiente do pod --
+    # nao e preciso passar token_reviewer_jwt.
+    exec_vault sh -c 'vault write auth/kubernetes/config \
+      kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443" \
+      kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+      disable_local_ca_jwt=false'
+
+    exec_vault sh -c 'vault policy write todolist -' <<'POLICY'
+    path "{{ vault_kv_mount }}/data/{{ vault_app_path }}/*" {
+      capabilities = ["read"]
+    }
+    path "{{ vault_kv_mount }}/metadata/{{ vault_app_path }}/*" {
+      capabilities = ["read", "list"]
+    }
+    POLICY
+
+    # Somente a ServiceAccount external-secrets-vault, somente no namespace da
+    # aplicacao, somente leitura no caminho da aplicacao.
+    #
+    # ARMADILHA: o ESO cunha o token via TokenRequest com uma audience. Se a
+    # audience do token nao bater com o que a role espera, o login falha com
+    # "permission denied" -- que parece erro de policy e leva a debugar o lugar
+    # errado por horas. Com audience vazia na role, o Vault aceita a audience
+    # padrao do cluster, que e o que o ESO envia quando nao configuramos uma.
+    exec_vault vault write auth/kubernetes/role/todolist \
+      bound_service_account_names=external-secrets-vault \
+      bound_service_account_namespaces={{ app_namespace }} \
+      policies=todolist \
+      audience="" \
+      ttl=1h
+  args:
+    executable: /bin/bash
+  changed_when: true
+  no_log: true

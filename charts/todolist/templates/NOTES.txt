@@ -1,0 +1,24 @@
+{{ .Chart.Name }} {{ .Chart.Version }} instalado no namespace {{ .Release.Namespace }}.
+
+Aplicacao:
+{{- if .Values.ingress.enabled }}
+  http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "todolist.fullname" . }} 8080:{{ .Values.service.port }}
+{{- end }}
+
+Imagem em uso:
+  {{ include "todolist.image" . }}
+{{- if not .Values.image.digest }}
+
+  ATENCAO: rodando por tag ({{ .Values.image.tag }}), nao por digest. Em producao
+  o campo image.digest e preenchido pelo workflow image-bump.yml.
+{{- end }}
+
+Verificacoes rapidas:
+  kubectl -n {{ .Release.Namespace }} get externalsecret
+  kubectl -n {{ .Release.Namespace }} get cluster.postgresql.cnpg.io
+  kubectl -n {{ .Release.Namespace }} get hpa,pdb
+  kubectl -n {{ .Release.Namespace }} get cronjob      # PRECISA retornar exatamente 1
+
+O login inicial esta no Vault, em {{ .Values.secrets.vaultPath }}/app.

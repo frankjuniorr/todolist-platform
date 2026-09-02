@@ -1,0 +1,69 @@
+# ABOUTME: Recebe o dispatch do repo da aplicacao e atualiza o digest no values.yaml.
+# ABOUTME: E aqui que "atualizacao automatica da app" deixa de ser so GitOps.
+name: image-bump
+
+# O GitOps sozinho NAO resolve atualizacao automatica. O Argo CD garante que o
+# cluster reflete o Git; ele nao decide que existe uma imagem nova. Alguem
+# precisa escrever o digest novo no Git -- e esse alguem e este workflow.
+on:
+  repository_dispatch:
+    types: [nova-imagem]
+  workflow_dispatch:
+    inputs:
+      digest: { description: "sha256:...", required: true }
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Dois pushes na aplicacao em sequencia gerariam dois bumps concorrentes no
+# mesmo arquivo. Serializar e mais barato que resolver conflito.
+concurrency:
+  group: image-bump
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolver o digest
+        id: d
+        run: |
+          DIGEST="${{ github.event.client_payload.digest || inputs.digest }}"
+          case "$DIGEST" in
+            sha256:*) ;;
+            *) echo "::error::digest invalido: $DIGEST" >&2; exit 1 ;;
+          esac
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "branch=bump/${DIGEST#sha256:}" >> "$GITHUB_OUTPUT"
+
+      - name: Atualizar o values.yaml
+        run: |
+          # Bump do DIGEST, nao da tag. Uma tag pode ser reescrita apontando
+          # para outro conteudo; o digest e o hash do manifesto. `:latest` com
+          # imagePullPolicy: IfNotPresent e a receita para "atualizei e nao mudou".
+          sed -i "s|^  digest: .*|  digest: \"${{ steps.d.outputs.digest }}\"|" \
+            charts/todolist/values.yaml
+          git diff --exit-code && { echo "digest ja atual"; exit 0; }
+
+      - name: Abrir PR
+        env:
+          # GITHUB_TOKEN de proposito, nao um PAT: pushes feitos com ele NAO
+          # disparam `on: push`. E a prevencao de loop nativa do GitHub -- com um
+          # PAT, este commit dispararia o proprio CI em cascata.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${{ steps.d.outputs.branch }}"
+          git commit -am "bump todolist para ${{ steps.d.outputs.digest }}"
+          git push -u origin "${{ steps.d.outputs.branch }}"
+          gh pr create \
+            --title "bump todolist para ${{ steps.d.outputs.digest }}" \
+            --body "Digest publicado por \`todolist-app\`. O Argo CD sincroniza apos o merge." \
+            --label automated
+          # auto-merge respeita branch protection: o PR so entra depois que os
+          # checks obrigatorios passam. Cada merge vira um registro de deploy
+          # auditavel no git log.
+          gh pr merge --auto --squash

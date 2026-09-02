@@ -1,0 +1,25 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{/*
+O PDB so age sobre disrupcoes VOLUNTARIAS -- kubectl drain, upgrade de node,
+descida do autoscaler de cluster. Ele nao protege contra um node que morre, e
+nao deve dar a impressao de que protege.
+*/}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "todolist.fullname" . }}
+  labels:
+    {{- include "todolist.labels" . | nindent 4 }}
+spec:
+  {{/* maxUnavailable: 1. Com 0, o drain fica preso indefinidamente esperando
+       uma permissao que nunca chega -- e o node nunca e liberado. */}}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{/* AlwaysAllow: um pod ja Unhealthy nao deveria bloquear um drain -- ele nao
+       esta servindo trafego mesmo. O default (IgnorePDB) so libera esse pod se
+       o cluster tiver menos de 1.22, o que nao e o nosso caso; declarar
+       explicito evita depender do default silencioso da versao do k8s. */}}
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      {{- include "todolist.selectorLabels" . | nindent 6 }}
+{{- end }}

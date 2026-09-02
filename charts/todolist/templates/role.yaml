@@ -1,0 +1,28 @@
+{{/*
+Permissoes derivadas linha a linha das chamadas em app.py -- nada a mais.
+
+  _k8s_get('/api/v1/namespaces/<ns>/pods')                  -> pods: list
+  _k8s_get('.../pods/<name>/log')                           -> pods/log: get
+  _k8s_get('/apis/batch/v1/namespaces/<ns>/cronjobs')       -> cronjobs: list
+  _k8s_patch('.../cronjobs/<name>', {suspend: bool})        -> cronjobs: patch
+
+Nao ha `get` de pod nomeado (a app lista e filtra em memoria), nao ha `watch`,
+e o patch e merge-patch -- que nao exige `update`. Nada cluster-scoped: Role,
+nao ClusterRole.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "todolist.fullname" . }}
+  labels:
+    {{- include "todolist.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["list", "patch"]

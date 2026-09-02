@@ -1,0 +1,72 @@
+# ABOUTME: Escreve os valores-semente no Vault. A partir daqui o Vault e a fonte da verdade.
+# ABOUTME: Sem vault.yml cifrado, gera valores aleatorios -- para nao quebrar "um comando".
+---
+- name: Verificar se existe o arquivo de valores-semente cifrado
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/group_vars/all/vault.yml"
+  register: _vaultfile
+
+# ESTA E A DECISAO QUE PRESERVA A PROMESSA DE "UM COMANDO SOBE TUDO".
+#
+# Se o playbook exigisse --ask-vault-pass, quem avalia pararia num prompt de
+# senha que nao tem. Se a senha fosse commitada junto com o arquivo cifrado, a
+# cifragem seria teatro. A saida e tornar os valores-semente OPCIONAIS: quando
+# nao ha vault password disponivel, geramos valores aleatorios de 32 caracteres.
+#
+# O arquivo cifrado continua sendo o padrao de verdade para o ambiente do dono
+# do repositorio (senha em .vault-pass, gitignored); numa maquina limpa o
+# ambiente sobe igual, so com credenciais diferentes.
+- name: Gerar valores aleatorios quando nao ha semente cifrada
+  ansible.builtin.set_fact:
+    seed_secrets:
+      SESSION_KEY: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+      ADMIN_USER: "admin"
+      ADMIN_PASSWORD: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+      CLEANUP_TOKEN: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+      DB_USER: "todolist"
+      DB_PASSWORD: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+  when: not _vaultfile.stat.exists or (seed_secrets is not defined)
+  no_log: true
+
+- name: Escrever os secrets da aplicacao no Vault
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl -n {{ vault_namespace }} exec -i vault-0 -- \
+      env VAULT_TOKEN='{{ vault_root_token }}' \
+      vault kv put {{ vault_kv_mount }}/{{ vault_app_path }}/app \
+        SESSION_KEY='{{ seed_secrets.SESSION_KEY }}' \
+        ADMIN_USER='{{ seed_secrets.ADMIN_USER }}' \
+        ADMIN_PASSWORD='{{ seed_secrets.ADMIN_PASSWORD }}' \
+        CLEANUP_TOKEN='{{ seed_secrets.CLEANUP_TOKEN }}'
+  args: { executable: /bin/bash }
+  changed_when: true
+  no_log: true
+
+- name: Escrever as credenciais do banco no Vault
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl -n {{ vault_namespace }} exec -i vault-0 -- \
+      env VAULT_TOKEN='{{ vault_root_token }}' \
+      vault kv put {{ vault_kv_mount }}/{{ vault_app_path }}/db \
+        username='{{ seed_secrets.DB_USER }}' \
+        password='{{ seed_secrets.DB_PASSWORD }}'
+  args: { executable: /bin/bash }
+  changed_when: true
+  no_log: true
+  # As chaves aqui sao `username` e `password`, nao DB_USER/DB_PASSWORD: e o
+  # formato que o Secret kubernetes.io/basic-auth exige, e o CloudNativePG
+  # rejeita qualquer outra coisa. O ExternalSecret da aplicacao remapeia esses
+  # mesmos campos para DB_USER e DB_PASSWORD -- um valor, dois consumidores com
+  # contratos diferentes.
+
+- name: Registrar as credenciais de acesso para o operador
+  ansible.builtin.copy:
+    dest: "{{ repo_dir }}/.app-credentials"
+    mode: "0600"
+    content: |
+      url:      https://todolist.{{ base_domain }}
+      usuario:  {{ seed_secrets.ADMIN_USER }}
+      senha:    {{ seed_secrets.ADMIN_PASSWORD }}
+    # Gitignored. Necessario porque, sem vault.yml, as credenciais sao geradas e
+    # ninguem as conhece -- inclusive quem rodou o comando.
+  no_log: true

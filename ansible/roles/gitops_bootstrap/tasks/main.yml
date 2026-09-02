@@ -1,0 +1,50 @@
+# ABOUTME: Aplica o App-of-Apps. Ultimo passo do Ansible -- daqui em diante e Argo CD.
+---
+# O root Application e aplicado direto do repositorio, sem substituicao em
+# tempo de execucao. Isso e deliberado: os Applications filhos em gitops/apps/
+# sao lidos pelo Argo CD DIRETO DO GIT, entao um placeholder trocado aqui na
+# maquina nunca chegaria neles. A URL precisa estar commitada -- e quem a grava,
+# uma unica vez, e o `just configure`.
+- name: Aplicar o root Application (App-of-Apps)
+  ansible.builtin.command: >-
+    kubectl -n {{ argocd_namespace }} apply -f {{ repo_dir }}/gitops/root-app.yaml
+  changed_when: true
+
+# Deste ponto em diante nenhum recurso e criado por comando. O Argo CD le o
+# repositorio e reconcilia a arvore inteira: cert-manager, os issuers, o ESO, o
+# CloudNativePG, o Reloader, o ClusterSecretStore e o chart da aplicacao -- nesta
+# ordem, por sync wave. Uma falha no primeiro reconcile nao e evitada, e tornada
+# auto-recuperavel pelo retry com backoff exponencial de cada Application.
+- name: Aguardar a arvore de Applications ficar Healthy
+  ansible.builtin.shell: |
+    set -o pipefail
+    for i in $(seq 1 120); do
+      total=$(kubectl -n {{ argocd_namespace }} get applications.argoproj.io \
+              -o jsonpath='{range .items[*]}{.status.health.status}{"\n"}{end}' 2>/dev/null | grep -c . || echo 0)
+      healthy=$(kubectl -n {{ argocd_namespace }} get applications.argoproj.io \
+                -o jsonpath='{range .items[*]}{.status.health.status}{"\n"}{end}' 2>/dev/null | grep -c '^Healthy$' || echo 0)
+      echo "applications healthy: $healthy/$total"
+      if [ "$total" -gt 1 ] && [ "$healthy" -eq "$total" ]; then exit 0; fi
+      sleep 10
+    done
+    echo "a arvore nao convergiu em 20 minutos; veja: kubectl -n {{ argocd_namespace }} get applications" >&2
+    exit 1
+  args: { executable: /bin/bash }
+  changed_when: false
+
+- name: Verificar o invariante de UM unico CronJob no namespace da aplicacao
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    kubectl -n {{ app_namespace }} get cronjob --no-headers 2>/dev/null | wc -l
+  args: { executable: /bin/bash }
+  register: _cronjobs
+  changed_when: false
+
+- name: Falhar se houver mais de um CronJob
+  ansible.builtin.assert:
+    that: _cronjobs.stdout | trim | int == 1
+    fail_msg: >-
+      Foram encontrados {{ _cronjobs.stdout | trim }} CronJobs em
+      {{ app_namespace }}, e a aplicacao exige exatamente 1. As telas /pods e
+      /cleanup/status vao parar de funcionar sem exibir erro.
+    success_msg: "Invariante OK: exatamente 1 CronJob em {{ app_namespace }}"

@@ -1,0 +1,43 @@
+# ABOUTME: Cadeia de confianca local: issuer auto-assinado -> CA raiz -> issuer CA.
+# ABOUTME: Let's Encrypt nao e viavel sem DNS publico; ver docs/adr/0008.
+---
+# Passo 1: um issuer que assina a si mesmo. Serve apenas para emitir a CA raiz.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}
+---
+# Passo 2: o certificado da CA raiz.
+# Precisa viver no namespace cert-manager: um ClusterIssuer do tipo `ca` procura
+# o Secret no namespace do proprio cert-manager, nao no namespace de quem pede o
+# certificado. Colocar em outro lugar da "secret not found" sem mais explicacao.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: todolist-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: todolist-platform-ca
+  secretName: todolist-ca-key-pair
+  duration: 8760h    # 1 ano
+  renewBefore: 720h  # 30 dias
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# Passo 3: o issuer que assina os certificados de verdade, usando a CA acima.
+# E este que as anotacoes cert-manager.io/cluster-issuer referenciam.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: todolist-ca
+spec:
+  ca:
+    secretName: todolist-ca-key-pair

@@ -1,0 +1,80 @@
+{{- if .Values.cleanup.enabled }}
+{{/*
+ESTE PRECISA SER O UNICO CronJob DO NAMESPACE.
+
+Nao e preferencia de estilo. app.py lista os CronJobs do namespace e devolve
+None se a contagem nao for exatamente 1 -- e as telas /cleanup/status e o botao
+de suspender param de funcionar, sem erro na interface. Qualquer CronJob extra
+(backup, cron de debug, um segundo release do chart no mesmo namespace) quebra
+duas telas de forma silenciosa. Confirmado que CloudNativePG, cert-manager, ESO,
+Reloader e Argo CD nao criam CronJob aqui: o CNPG usa o CRD ScheduledBackup.
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "todolist.fullname" . }}-cleanup
+  labels:
+    {{- include "todolist.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cleanup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  {{/* A tela de historico e construida a partir dos PODS dos Jobs antigos e dos
+       logs deles. Os defaults (3 e 1) deixariam a tela quase vazia. */}}
+  successfulJobsHistoryLimit: 10
+  failedJobsHistoryLimit: 5
+  {{/* ttlSecondsAfterFinished e omitido DE PROPOSITO. O TTL controller apaga o
+       Job e os pods independentemente dos limits acima -- e o historico
+       desaparece junto, deixando a tela vazia sem explicacao. */}}
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "todolist.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: cleanup
+        spec:
+          {{/* Never, nao OnFailure: com OnFailure o container reinicia no mesmo
+               pod e sobrescreve o log da tentativa anterior. Com Never cada
+               tentativa e um pod, e a falha fica visivel no historico. */}}
+          restartPolicy: Never
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: cleanup
+              image: {{ .Values.cleanup.image }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              command:
+                - sh
+                - -c
+                {{/* A saida precisa ser EXATAMENTE `deleted N`, em uma linha:
+                     a interface faz result.startswith("deleted") para decidir o
+                     badge. Por isso -sS (silencioso, mas com erro no stderr) e
+                     nenhum echo extra.
+
+                     O alvo e o Service ClusterIP, nao o Ingress: sem depender de
+                     DNS externo, TLS ou do Traefik estar de pe. Um problema de
+                     certificado nao pode quebrar a limpeza do banco. */}}
+                - >-
+                  curl -sS --max-time 30 -X POST
+                  -H "X-Cleanup-Token: $(cat {{ .Values.config.SECRETS_DIR }}/CLEANUP_TOKEN)"
+                  http://{{ include "todolist.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/cleanup
+              volumeMounts:
+                - name: token
+                  mountPath: {{ .Values.config.SECRETS_DIR }}
+                  readOnly: true
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits: { memory: 64Mi }
+          volumes:
+            - name: token
+              secret:
+                secretName: {{ include "todolist.fullname" . }}-app
+                defaultMode: 0440
+                {{/* Apenas CLEANUP_TOKEN. Este pod nunca precisa da senha do
+                     banco nem da SESSION_KEY, entao nao as recebe -- se ele for
+                     comprometido, o que vaza e um token de limpeza. */}}
+                items:
+                  - { key: CLEANUP_TOKEN, path: CLEANUP_TOKEN }
+{{- end }}

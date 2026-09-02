@@ -1,0 +1,19 @@
+# Duas regras de estilo (profile: basic) desativadas de proposito, nao por
+# preguica -- cada uma conflita com uma escolha de design ja documentada:
+#
+# var-naming[no-role-prefix]: pede que toda variavel de um role tenha o nome
+#   do role como prefixo. O playbook depende, de proposito, de fatos
+#   (`set_fact`) que atravessam a fronteira de um role para o proximo na mesma
+#   play -- por exemplo `vault_root_token`, definido em vault_bootstrap e lido
+#   em seed_secrets. Prefixar por role tornaria esse acoplamento MENOS legivel,
+#   nao mais, porque o nome deixaria de descrever o dado (um token do Vault) e
+#   passaria a descrever onde ele nasceu.
+#
+# no-handler: sinaliza a tarefa que persiste as chaves de unseal do Vault
+#   (`when: _init.changed`) como candidata a handler. Um handler so roda no
+#   fim da play, e este playbook precisa das chaves imediatamente, na mesma
+#   sequencia imperativa de init -> persistir -> unseal. Virar handler
+#   quebraria a ordem que o bootstrap do Vault exige.
+skip_list:
+  - var-naming[no-role-prefix]
+  - no-handler

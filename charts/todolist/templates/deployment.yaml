@@ -1,0 +1,189 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "todolist.fullname" . }}
+  labels:
+    {{- include "todolist.labels" . | nindent 4 }}
+  annotations:
+    {{/*
+      Reloader observa ESTE Secret e reinicia o Deployment quando o conteudo muda.
+
+      O truque classico do Helm -- annotation checksum/config -- nao funciona aqui:
+      o Secret e criado pelo ESO em runtime, entao o Helm nao conhece o conteudo
+      no momento de renderizar e o checksum nunca mudaria. Anotacao explicita em
+      vez de reloader.stakater.com/auto: "true" para deixar a dependencia legivel
+      e evitar que o Reloader observe objetos que nao pedimos.
+    */}}
+    secret.reloader.stakater.com/reload: "{{ include "todolist.fullname" . }}-app"
+    configmap.reloader.stakater.com/reload: "{{ include "todolist.fullname" . }}-config"
+spec:
+  {{/* Quando o HPA esta ativo, o campo replicas e omitido de proposito: o
+       Deployment nao deve declarar um numero que o autoscaler vai sobrescrever.
+       O Application do Argo CD tambem ignora /spec/replicas por isso. */}}
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "todolist.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "todolist.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "todolist.fullname" . }}
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+
+      {{/* Espalhar entre nodes. whenUnsatisfiable: ScheduleAnyway, nao
+           DoNotSchedule: com DoNotSchedule, perder um node deixaria os pods
+           novos em Pending -- resiliencia que produz indisponibilidade. */}}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          matchLabelKeys:
+            - pod-template-hash
+          labelSelector:
+            matchLabels:
+              {{- include "todolist.selectorLabels" . | nindent 14 }}
+
+      {{- if .Values.postgres.enabled }}
+      initContainers:
+        {{/*
+          app.py roda db.create_all() no import do modulo. Se o banco nao estiver
+          aceitando conexao autenticada nesse instante, o gunicorn morre no boot e
+          o pod entra em CrashLoopBackOff -- que faz o operador procurar o bug na
+          aplicacao. Este initContainer converte esse sintoma em Init:0/1, que
+          aponta para o lugar certo.
+
+          Testa autenticacao de verdade (SELECT 1), nao so a porta TCP: o
+          CloudNativePG abre a porta antes de o role do owner existir.
+        */}}
+        - name: wait-for-db
+          image: {{ .Values.postgres.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: PGHOST
+              value: {{ include "todolist.dbCluster" . }}-rw
+            - name: PGPORT
+              value: {{ .Values.config.DB_PORT | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.config.DB_NAME | quote }}
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "todolist.fullname" . }}-db
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "todolist.fullname" . }}-db
+                  key: password
+          command:
+            - sh
+            - -c
+            - |
+              until psql -qtAc 'select 1' >/dev/null 2>&1; do
+                echo "aguardando o postgres em $PGHOST:$PGPORT ..."
+                sleep 2
+              done
+              echo "banco acessivel"
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+      {{- end }}
+
+      containers:
+        - name: app
+          image: {{ include "todolist.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.APP_PORT | int }}
+              protocol: TCP
+
+          {{/* Config nao-secreta por ambiente; os secrets NAO passam por aqui,
+               chegam como arquivos montados em SECRETS_DIR. */}}
+          envFrom:
+            - configMapRef:
+                name: {{ include "todolist.fullname" . }}-config
+
+          volumeMounts:
+            - name: secrets
+              mountPath: {{ .Values.config.SECRETS_DIR }}
+              readOnly: true
+            {{/* readOnlyRootFilesystem: true exige um local gravavel para os
+                 arquivos temporarios do gunicorn e do Python. */}}
+            - name: tmp
+              mountPath: /tmp
+
+          {{/* Tres probes com tres perguntas diferentes.
+
+               startup:   "ja terminou de subir?"      -> tolera boot lento
+               readiness: "posso receber trafego?"     -> /healthz, toca o banco
+               liveness:  "o processo esta travado?"   -> /login, NAO toca o banco
+
+               Usar /healthz no liveness seria uma falha em cascata: o banco cai,
+               TODOS os pods sao mortos ao mesmo tempo e entram em backoff. Quando
+               o banco volta, a app ainda passa minutos fora do ar por causa do
+               CrashLoopBackOff -- uma indisponibilidade que a probe criou. */}}
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          livenessProbe:
+            httpGet: { path: /login, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          lifecycle:
+            preStop:
+              exec:
+                {{/* O endpoint so sai das tabelas do kube-proxy DEPOIS que o pod
+                     ja recebeu SIGTERM. Esta pausa cobre essa janela e evita o
+                     502 em todo rolling update. */}}
+                command: ["sleep", "5"]
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+      volumes:
+        - name: secrets
+          secret:
+            secretName: {{ include "todolist.fullname" . }}-app
+            {{/* 0440: legivel pelo dono e pelo grupo (fsGroup 10001), invisivel
+                 para o resto. Se o processo NAO conseguir ler, _config() captura
+                 o OSError e devolve string vazia sem log de erro -- e o sintoma
+                 vira "senha invalida". */}}
+            defaultMode: 0440
+            {{/* items explicito: um arquivo por chave, com o nome exato que
+                 _config() procura. Tambem serve de contrato -- uma chave nova no
+                 Vault nao vaza para dentro do pod sem passar por aqui. */}}
+            items:
+              - { key: SESSION_KEY,    path: SESSION_KEY }
+              - { key: ADMIN_USER,     path: ADMIN_USER }
+              - { key: ADMIN_PASSWORD, path: ADMIN_PASSWORD }
+              - { key: CLEANUP_TOKEN,  path: CLEANUP_TOKEN }
+              - { key: DB_USER,        path: DB_USER }
+              - { key: DB_PASSWORD,    path: DB_PASSWORD }
+        - name: tmp
+          emptyDir: {}

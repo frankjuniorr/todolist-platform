@@ -1,0 +1,64 @@
+{{- if .Values.postgres.enabled }}
+{{/*
+Banco gerenciado pelo CloudNativePG.
+
+Um StatefulSet de Postgres puro dava o mesmo pod rodando; o que ele nao dava era
+failover. Aqui o operator elege um novo primario e reaponta o Service -rw sozinho,
+e isso e demonstravel ao vivo -- que e o que o requisito de resiliencia pede.
+*/}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "todolist.dbCluster" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  labels:
+    {{- include "todolist.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.postgres.instances }}
+  imageName: {{ .Values.postgres.image }}
+
+  {{/* unsupervised = o operator faz o switchover sozinho num upgrade de minor.
+       supervised exigiria um `kubectl cnpg promote` manual. */}}
+  primaryUpdateStrategy: unsupervised
+
+  {{/* Sem esta linha o CNPG gera uma senha de superusuario e cria um Secret
+       proprio. Nao precisamos de superusuario: a app so usa o owner do banco. */}}
+  enableSuperuserAccess: false
+
+  bootstrap:
+    initdb:
+      database: {{ .Values.config.DB_NAME }}
+      {{/* `owner` PRECISA bater com o campo username do Secret basic-auth.
+           Se divergir, o initdb cria o role do `owner` e a app tenta logar com
+           outro nome -- erro de autenticacao sem pista da causa. */}}
+      owner: {{ .Values.postgres.owner }}
+      secret:
+        name: {{ include "todolist.fullname" . }}-db
+
+  {{/* Reconciliacao continua da senha. Sem isto, o initdb roda UMA vez e uma
+       rotacao futura no Vault atualizaria o Secret sem tocar no banco --
+       a app passaria a mandar a senha nova para um role com a senha antiga. */}}
+  managed:
+    roles:
+      - name: {{ .Values.postgres.owner }}
+        login: true
+        superuser: false
+        passwordSecret:
+          name: {{ include "todolist.fullname" . }}-db
+
+  storage:
+    size: {{ .Values.postgres.storage.size }}
+    storageClass: {{ .Values.postgres.storage.storageClass }}
+
+  resources:
+    {{- toYaml .Values.postgres.resources | nindent 4 }}
+
+  postgresql:
+    parameters:
+      max_connections: "100"
+      shared_buffers: "128MB"
+
+  monitoring:
+    enablePodMonitor: false
+{{- end }}

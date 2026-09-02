@@ -1,0 +1,8 @@
+apiVersion: v2
+name: todolist
+description: Aplicacao todolist com PostgreSQL gerenciado por CloudNativePG
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: Frank Junior

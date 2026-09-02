@@ -1,0 +1,49 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-15"
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.16.2
+    helm:
+      valuesObject:
+        crds:
+          enabled: true
+          keep: true
+        resources:
+          requests: { cpu: 10m, memory: 32Mi }
+        webhook:
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+        cainjector:
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      # CRDs do cert-manager passam de 256KB. Com apply client-side isso estoura
+      # o limite da anotacao last-applied-configuration.
+      - ServerSideApply=true
+    retry: { limit: 5, backoff: { duration: 10s, factor: 2, maxDuration: 3m } }
+  ignoreDifferences:
+    # O cainjector escreve o certificado da CA dentro do proprio objeto de webhook
+    # em tempo de execucao. Esse campo nao existe no chart, entao o Argo CD ve uma
+    # diferenca a cada reconcile e a Application fica OutOfSync para sempre --
+    # e com selfHeal ligado, ele apaga o caBundle, o webhook para de funcionar,
+    # o cainjector reescreve, e o ciclo recomeca.
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers: ["/webhooks/0/clientConfig/caBundle"]
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers: ["/webhooks/0/clientConfig/caBundle"]

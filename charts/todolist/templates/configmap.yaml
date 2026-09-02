@@ -1,0 +1,21 @@
+{{/*
+Config nao-secreta, separada do codigo e do Secret.
+
+O 12-factor diz que configuracao vive no ambiente. Em Kubernetes, o "ambiente" e
+declarado num manifesto -- entao a pergunta util nao e onde a config mora, e o
+que acontece quando ela muda. Esta config muda por commit e sincronizacao do
+Argo CD; um secret muda no Vault e o ESO propaga. Caminhos diferentes, de proposito.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "todolist.fullname" . }}-config
+  labels:
+    {{- include "todolist.labels" . | nindent 4 }}
+data:
+  {{- range $k, $v := .Values.config }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+  {{/* Montado pelo CloudNativePG: o Service -rw aponta sempre para o primario
+       atual, entao um failover nao exige mudanca de configuracao. */}}
+  DB_HOST: {{ include "todolist.dbCluster" . }}-rw

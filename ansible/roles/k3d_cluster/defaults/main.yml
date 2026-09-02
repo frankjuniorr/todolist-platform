@@ -1,0 +1,4 @@
+---
+prepull_images:
+  - curlimages/curl:8.11.1
+  - ghcr.io/cloudnative-pg/postgresql:16.4

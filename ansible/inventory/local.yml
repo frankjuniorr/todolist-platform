@@ -1,0 +1,6 @@
+# Todo o trabalho acontece na maquina local: o "inventario" e o proprio host que
+# roda o playbook. O que muda de estado e o cluster, nao um servidor remoto.
+all:
+  hosts:
+    localhost:
+      ansible_connection: local

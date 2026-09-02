@@ -1,0 +1,53 @@
+# Observa o estado do Vault e o destranca em segundos apos um restart.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-unsealer
+  namespace: {{ vault_namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault-unsealer
+  namespace: {{ vault_namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: vault-unsealer }
+  template:
+    metadata:
+      labels: { app: vault-unsealer }
+    spec:
+      serviceAccountName: vault-unsealer
+      containers:
+        - name: unsealer
+          image: hashicorp/vault:1.18.3
+          env:
+            - name: VAULT_ADDR
+              # O POD, via Service headless -- nao o Service `vault`.
+              #
+              # Enquanto selado, o pod nao fica Ready, e um Service comum remove
+              # pods nao-prontos dos seus endpoints. O unsealer ficaria sem
+              # conseguir alcancar exatamente o Vault que ele existe para
+              # destrancar. O Service `vault-internal` do chart tem
+              # publishNotReadyAddresses: true e resolve o pod mesmo selado.
+              value: http://vault-0.vault-internal.{{ vault_namespace }}.svc.cluster.local:8200
+            - name: UNSEAL_KEY
+              valueFrom:
+                secretKeyRef: { name: vault-unseal, key: key }
+          command:
+            - sh
+            - -c
+            - |
+              while true; do
+                # `vault status` retorna 0 aberto, 2 selado, 1 inalcancavel.
+                vault status >/dev/null 2>&1
+                case $? in
+                  2) echo "vault selado, destrancando"; vault operator unseal "$UNSEAL_KEY" >/dev/null 2>&1 || true ;;
+                  1) echo "vault inalcancavel, aguardando" ;;
+                esac
+                sleep 10
+              done
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }

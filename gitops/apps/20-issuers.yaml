@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: issuers
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-12"
+spec:
+  project: default
+  source:
+    repoURL: PLACEHOLDER_REPO_URL
+    targetRevision: main
+    path: gitops/manifests/issuers
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      # Na primeiríssima sincronizacao os CRDs do cert-manager podem ainda nao
+      # estar registrados na API. Sem esta opcao o dry-run falha com
+      # "no matches for kind ClusterIssuer" e a wave nunca completa.
+      - SkipDryRunOnMissingResource=true
+    retry: { limit: 10, backoff: { duration: 10s, factor: 2, maxDuration: 3m } }

@@ -1,0 +1,115 @@
+# ABOUTME: Configuracao da aplicacao. Config NAO-SECRETA vive aqui; secrets vem do Vault.
+# ABOUTME: Esta separacao e o ponto do 12-factor: o mesmo chart, ambientes diferentes.
+
+image:
+  repository: ghcr.io/CHANGEME/todolist-app
+  # Digest, nao tag. Uma tag pode ser reescrita apontando para outro conteudo;
+  # um digest e o hash do manifesto e nao pode mentir. Este campo e atualizado
+  # automaticamente pelo workflow image-bump.yml.
+  digest: ""
+  # Usada apenas quando digest esta vazio (desenvolvimento local).
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# --- Configuracao da aplicacao (12-factor) -----------------------------------
+# Tudo aqui vira um ConfigMap consumido via envFrom. Nada aqui e secreto.
+config:
+  APP_NAME: "TodoList"
+  APP_PORT: "5000"
+  APP_COLOR: "purple"   # purple green blue cyan pink red orange brown yellow
+  DB_NAME: "todolist"
+  DB_PORT: "5432"
+  SECRETS_DIR: "/var/run/secrets/todolist"
+  LOG_LEVEL: "info"
+  GUNICORN_THREADS: "8"
+
+# --- Secrets ------------------------------------------------------------------
+# Nenhum valor aqui: apenas de ONDE eles vem. Os valores vivem no Vault.
+secrets:
+  vaultPath: "secret/todolist"
+  refreshInterval: "1m"
+  secretStore: "vault"
+
+# --- Banco de dados (CloudNativePG) -------------------------------------------
+postgres:
+  enabled: true
+  instances: 3
+  # Precisa ser IDENTICO ao campo `username` do Secret basic-auth que o ESO
+  # materializa, e ao DB_USER que a app le. Uma divergencia aqui aparece como
+  # "password authentication failed", que aponta para o lugar errado.
+  owner: todolist
+  storage:
+    size: 1Gi
+    storageClass: local-path
+  image: ghcr.io/cloudnative-pg/postgresql:16.4
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }
+
+# --- Rede ---------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: traefik
+  host: todolist.localhost
+  clusterIssuer: todolist-ca
+  tls: true
+
+# --- Escala e resiliencia -----------------------------------------------------
+resources:
+  requests:
+    # O HPA calcula a utilizacao como uso/request. Sem request de CPU a metrica
+    # fica <unknown> e o autoscaler nunca dispara.
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    # Sem limite de CPU de proposito: o throttling do CFS faz o Pod parecer
+    # ocupado quando na verdade esta sendo segurado, o que distorce a metrica
+    # que o HPA usa para decidir. Limite de memoria existe porque memoria nao e
+    # compressivel -- estourar significa OOMKill.
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+# UID/GID fixados na imagem (Dockerfile). O fsGroup PRECISA bater com o GID:
+# e ele que decide se o processo consegue ler os arquivos de secret montados
+# com defaultMode 0440. Se nao bater, a app cai no fallback silencioso de
+# _config() e recebe string vazia.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# Tempo para o pod terminar as requisicoes em voo depois do SIGTERM.
+terminationGracePeriodSeconds: 30
+
+podDisruptionBudget:
+  enabled: true
+  # maxUnavailable: 1, nunca 0. Com 0 o kubectl drain fica preso para sempre,
+  # esperando uma permissao que nunca vem.
+  maxUnavailable: 1
+
+# --- Limpeza agendada ----------------------------------------------------------
+cleanup:
+  enabled: true
+  schedule: "*/5 * * * *"
+  # curlimages/curl fixado por digest.
+  image: curlimages/curl:8.11.1

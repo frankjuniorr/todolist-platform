@@ -1,0 +1,87 @@
+# ABOUTME: Valida o host antes de gastar minutos criando um cluster que vai falhar.
+# ABOUTME: Cada checagem aqui corresponde a um modo de falha ja observado.
+---
+- name: Verificar binarios obrigatorios
+  ansible.builtin.command: "which {{ item }}"
+  changed_when: false
+  loop: [docker, k3d, kubectl, helm, terraform, argocd]
+  register: _bin
+  failed_when: _bin.rc != 0
+  # Falha aqui significa que o setup.sh nao rodou. A mensagem do `which` ja diz
+  # qual binario falta, e o setup.sh instala todos com versao fixada.
+
+- name: Verificar se o daemon do Docker responde
+  ansible.builtin.command: docker info
+  changed_when: false
+  register: _docker
+  failed_when: _docker.rc != 0
+
+- name: Checar portas 80 e 443
+  ansible.builtin.wait_for:
+    port: "{{ item }}"
+    host: 127.0.0.1
+    state: stopped
+    timeout: 2
+  loop: [80, 443]
+  when: not (skip_port_check | default(false) | bool)
+  # Se algo ja escuta em 80/443 (nginx, apache, outro k3d), o k3d cria o cluster
+  # e falha so na hora de publicar o load balancer -- deixando um cluster meio
+  # criado. Melhor recusar antes.
+
+- name: Ler limites atuais de inotify
+  ansible.builtin.command: "sysctl -n {{ item }}"
+  changed_when: false
+  register: _inotify
+  loop:
+    - fs.inotify.max_user_instances
+    - fs.inotify.max_user_watches
+
+- name: Elevar os limites de inotify
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-k3d.conf
+    reload: true
+    state: present
+  become: true
+  loop:
+    - { name: fs.inotify.max_user_instances, value: "512" }
+    - { name: fs.inotify.max_user_watches, value: "524288" }
+  # ESTA E A CAUSA NUMERO 1 DE "FUNCIONA NA MINHA MAQUINA".
+  #
+  # O default do Ubuntu para max_user_instances e 128. Quatro nodes k3s, mais
+  # Argo CD, Vault, ESO e CNPG -- todos usando watches de arquivo -- estouram
+  # isso de forma confiavel. O sintoma e opaco: "too many open files" em
+  # componentes aleatorios, k3s reiniciando sozinho, pods presos em ContainerCreating.
+  # Nada aponta para inotify. Persistido em /etc/sysctl.d para sobreviver a reboot.
+
+- name: Verificar memoria disponivel
+  ansible.builtin.assert:
+    that: ansible_memtotal_mb >= 6000
+    fail_msg: >-
+      Memoria insuficiente ({{ ansible_memtotal_mb }} MB). O ambiente completo
+      (4 nodes, Argo CD, Vault, 3 instancias de Postgres) precisa de ~6 GB.
+      Reduza postgres.instances para 1 ou k3d_agents para 1.
+    success_msg: "Memoria OK: {{ ansible_memtotal_mb }} MB"
+
+- name: Procurar placeholders nao substituidos  # noqa: risky-shell-pipe (o | aqui e alternancia de regex do grep, nao um pipeline)
+  ansible.builtin.shell: >-
+    grep -rl 'PLACEHOLDER_REPO_URL\|CHANGEME'
+    {{ repo_dir }}/gitops {{ repo_dir }}/charts {{ repo_dir }}/ansible/group_vars
+    2>/dev/null || true
+  register: _placeholders
+  changed_when: false
+
+- name: Falhar enquanto houver placeholder
+  ansible.builtin.assert:
+    that: _placeholders.stdout | trim | length == 0
+    fail_msg: |-
+      Estes arquivos ainda contem PLACEHOLDER_REPO_URL ou CHANGEME:
+
+      {{ _placeholders.stdout }}
+
+      Rode `just configure GITHUB_USER=<seu-usuario>` uma unica vez e commite.
+      O Argo CD le os Applications filhos DIRETO DO GIT: um placeholder trocado
+      apenas nesta maquina nunca chegaria ate eles, e o sintoma seria um
+      repositorio inexistente no lugar do seu.
+    success_msg: "Nenhum placeholder pendente"

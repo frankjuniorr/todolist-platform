@@ -1,0 +1,40 @@
+{{- if .Values.ingress.enabled }}
+{{/*
+Ingress padrao, nao IngressRoute do Traefik.
+
+Duas razoes. A primeira e o cert-manager: o ingress-shim so observa objetos
+Ingress, entao a anotacao cluster-issuer emite e renova o certificado sozinha.
+Com IngressRoute seria preciso escrever um Certificate a mao para cada host.
+A segunda e portabilidade -- o mesmo manifesto funciona em nginx ou kind.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "todolist.fullname" . }}
+  labels:
+    {{- include "todolist.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.ingress.tls }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ include "todolist.fullname" . }}-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "todolist.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}

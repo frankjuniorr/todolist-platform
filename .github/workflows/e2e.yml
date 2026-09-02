@@ -1,0 +1,49 @@
+# ABOUTME: O job mais importante do repositorio -- a prova de que `just up` funciona.
+# ABOUTME: Sobe o ambiente inteiro dentro do runner, valida os requisitos e derruba.
+name: e2e
+
+on:
+  pull_request:
+  schedule:
+    # Semanal: pega quebra causada por versao nova de chart upstream, nao por
+    # mudanca nossa. Um ambiente que so e testado quando alguem mexe nele
+    # descobre a quebra na hora da apresentacao.
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  up:
+    runs-on: ubuntu-latest
+    # Sobe cluster, Argo CD, Vault, CNPG e a aplicacao inteira.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup
+        run: ./scripts/setup.sh
+        env: { BIN_DIR: /usr/local/bin }
+
+      - name: e2e
+        run: ./scripts/e2e.sh
+
+      - name: diagnostico em caso de falha
+        if: failure()
+        run: |
+          kubectl get nodes -o wide || true
+          kubectl get pods -A || true
+          kubectl -n argocd get applications.argoproj.io -o wide || true
+          for ns in argocd vault todolist; do
+            kubectl -n "$ns" get events --sort-by=.lastTimestamp | tail -30 || true
+          done
+          kubectl -n todolist describe pods || true
+
+      - name: derrubar
+        if: always()
+        run: just down || true

@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: todolist
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: PLACEHOLDER_REPO_URL
+    targetRevision: main
+    path: charts/todolist
+    helm:
+      valueFiles: [values.yaml]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: todolist
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+    retry: { limit: 10, backoff: { duration: 10s, factor: 2, maxDuration: 3m } }
+  ignoreDifferences:
+    # O HPA gerencia spec.replicas do Deployment. Se o Argo CD tambem gerenciar,
+    # os dois brigam: o HPA escala para 4, o Argo CD ve diferenca em relacao ao
+    # Git (2) e reverte, o HPA escala de novo. O Deployment nem declara replicas,
+    # mas o campo aparece no objeto vivo, entao precisa ser ignorado explicitamente.
+    - group: apps
+      kind: Deployment
+      jsonPointers: ["/spec/replicas"]

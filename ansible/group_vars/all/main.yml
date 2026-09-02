@@ -1,0 +1,31 @@
+# ABOUTME: Variaveis nao-secretas do bootstrap. Este arquivo vai para o Git em claro.
+# ABOUTME: Os valores secretos vivem em vault.yml, cifrado com ansible-vault.
+
+cluster_name: todolist
+# Imagem do k3s fixada por versao. "latest" quebraria a reprodutibilidade que o
+# requisito de provisionamento por codigo pede -- dois `just up` em datas
+# diferentes entregariam clusters diferentes.
+k3s_image: rancher/k3s:v1.31.4-k3s1
+k3d_agents: 3
+http_port: 80
+https_port: 443
+
+base_domain: localhost
+repo_dir: "{{ playbook_dir }}/.."
+terraform_dir: "{{ repo_dir }}/terraform"
+
+# URL do repositorio GitOps. O Argo CD le os manifests daqui, entao ele precisa
+# apontar para o repositorio publicado -- nao para o clone local.
+gitops_repo_url: "https://github.com/CHANGEME/todolist-platform.git"
+gitops_repo_revision: main
+
+vault_namespace: vault
+argocd_namespace: argocd
+app_namespace: todolist
+
+# Caminho kv-v2 onde os secrets da aplicacao sao semeados.
+vault_kv_mount: secret
+vault_app_path: todolist
+
+# Arquivo com as unseal keys e o root token, gerado pelo init. Gitignored.
+vault_keys_file: "{{ repo_dir }}/.vault-keys.json"

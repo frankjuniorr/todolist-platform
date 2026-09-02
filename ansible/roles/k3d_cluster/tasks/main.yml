@@ -1,0 +1,51 @@
+# ABOUTME: Cria o cluster k3d idempotentemente e publica 80/443 no load balancer.
+---
+- name: Listar clusters existentes
+  ansible.builtin.command: k3d cluster list -o json
+  changed_when: false
+  register: _clusters
+
+- name: Registrar se o cluster ja existe
+  ansible.builtin.set_fact:
+    cluster_exists: "{{ cluster_name in (_clusters.stdout | from_json | map(attribute='name') | list) }}"
+
+- name: Criar o cluster k3d
+  ansible.builtin.command:
+    argv:
+      - k3d
+      - cluster
+      - create
+      - "{{ cluster_name }}"
+      - --image={{ k3s_image }}
+      - --servers=1
+      - --agents={{ k3d_agents }}
+      # Publicar 80/443 no serverlb e o que torna https://todolist.localhost
+      # acessivel do navegador do host sem port-forward.
+      - "--port={{ http_port }}:80@loadbalancer"
+      - "--port={{ https_port }}:443@loadbalancer"
+      # Nada de --disable=traefik: o Traefik embutido do k3s e usado como
+      # esta. Instalar um segundo ingress controller faria os dois brigarem
+      # pelo mesmo Service via helm-controller do k3s.
+      - --wait
+      - --timeout=300s
+  when: not cluster_exists
+  changed_when: true
+
+- name: Aguardar os nodes ficarem Ready
+  ansible.builtin.command: >-
+    kubectl wait --for=condition=Ready nodes --all --timeout=180s
+    --context k3d-{{ cluster_name }}
+  changed_when: false
+
+- name: Pre-carregar imagens criticas no cluster
+  ansible.builtin.shell: |
+    set -e
+    docker pull {{ item }}
+    k3d image import {{ item }} -c {{ cluster_name }}
+  loop: "{{ prepull_images }}"
+  when: not cluster_exists
+  changed_when: true
+  # O Docker Hub limita 100 pulls a cada 6h por IP anonimo. Com 4 nodes puxando
+  # as mesmas imagens, um `just down && just up` algumas vezes no mesmo dia bate
+  # no limite -- e o erro (`toomanyrequests`) aparece como ImagePullBackOff, que
+  # parece problema de rede. Puxar uma vez no host e importar resolve.

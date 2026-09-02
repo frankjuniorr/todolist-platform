@@ -1,0 +1,21 @@
+# ABOUTME: Modelo dos valores-semente. COPIE para vault.yml e cifre com ansible-vault.
+# ABOUTME: O arquivo cifrado pode ir para o Git; este exemplo nao contem valor real.
+#
+#   just secrets-init      # copia este arquivo, gera valores e cifra
+#   just secrets-edit      # abre o vault.yml cifrado para edicao
+#
+# O que e cifrado aqui sao VALORES-SEMENTE, nao um manifesto de Secret do
+# Kubernetes. A diferenca importa: estes valores sao escritos no Vault uma vez,
+# no bootstrap, e a partir dai o Vault e a fonte da verdade. Nenhum Secret do
+# Kubernetes existe no Git em momento algum, nem cifrado.
+#
+# Se vault.yml nao existir, o playbook GERA valores aleatorios de 32 caracteres.
+# E por isso que `just up` funciona numa maquina que nunca viu a senha do vault.
+
+seed_secrets:
+  SESSION_KEY: "troque-me-assina-os-cookies-de-sessao"
+  ADMIN_USER: "admin"
+  ADMIN_PASSWORD: "troque-me"
+  CLEANUP_TOKEN: "troque-me"
+  DB_USER: "todolist"
+  DB_PASSWORD: "troque-me"
