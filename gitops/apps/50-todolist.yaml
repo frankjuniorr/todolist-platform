@@ -30,3 +30,36 @@ spec:
     - group: apps
       kind: Deployment
       jsonPointers: ["/spec/replicas"]
+    # O webhook mutante do CNPG preenche dezenas de campos default em
+    # spec/* que o nosso manifesto nunca declarou (afinidade, parametros de
+    # tuning do postgresql.conf, monitoring, replicationSlots, os campos
+    # extras que o operator adiciona em managed.roles[0] etc.). Sem isto, o
+    # Cluster fica OutOfSync para sempre -- o mesmo problema do caBundle,
+    # so que no CR do CNPG em vez de nos webhooks do cert-manager/ESO.
+    # managedFieldsManagers nao resolve aqui: o webhook edita a requisicao
+    # antes de chegar no etcd, entao TUDO fica atribuido ao manager que
+    # aplicou (argocd-controller), sem um manager separado para excluir.
+    - group: postgresql.cnpg.io
+      kind: Cluster
+      jsonPointers:
+        - /spec/affinity
+        - /spec/bootstrap/initdb/encoding
+        - /spec/bootstrap/initdb/localeCType
+        - /spec/bootstrap/initdb/localeCollate
+        - /spec/enablePDB
+        - /spec/failoverDelay
+        - /spec/logLevel
+        - /spec/managed
+        - /spec/maxSyncReplicas
+        - /spec/minSyncReplicas
+        - /spec/monitoring
+        - /spec/postgresGID
+        - /spec/postgresUID
+        - /spec/postgresql
+        - /spec/primaryUpdateMethod
+        - /spec/replicationSlots
+        - /spec/smartShutdownTimeout
+        - /spec/startDelay
+        - /spec/stopDelay
+        - /spec/storage/resizeInUseVolumes
+        - /spec/switchoverDelay

@@ -22,4 +22,8 @@ spec:
   selector:
     matchLabels:
       {{- include "todolist.selectorLabels" . | nindent 6 }}
+      {{/* Sem este componente extra, o seletor tambem casaria com os pods
+           do CronJob de limpeza (mesmas selectorLabels) -- ver o comentario
+           no deployment.yaml. */}}
+      app.kubernetes.io/component: app
 {{- end }}

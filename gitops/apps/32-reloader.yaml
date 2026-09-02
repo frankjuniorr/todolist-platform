@@ -22,6 +22,14 @@ spec:
           deployment:
             resources:
               requests: { cpu: 10m, memory: 32Mi }
+            # O chart nao define isto por padrao (vem `{}`), e o namespace
+            # `todolist` forca Pod Security "restricted" -- sem isto, todo
+            # pod do Reloader e rejeitado na criacao (ReplicaFailure:
+            # FailedCreate), nunca chega a existir para dar erro mais claro.
+            containerSecurityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
   destination:
     server: https://kubernetes.default.svc
     namespace: todolist

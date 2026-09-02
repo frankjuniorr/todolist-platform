@@ -36,6 +36,13 @@ spec:
     metadata:
       labels:
         {{- include "todolist.labels" . | nindent 8 }}
+        {{/* Distingue estes pods dos do CronJob de limpeza, que tambem
+             carrega todolist.selectorLabels. Sem isso, o seletor do PDB
+             (que so usa selectorLabels) tambem casa com os pods do Job, e o
+             controller do PDB tenta calcular replicas esperadas neles --
+             falhando com "jobs.batch does not implement the scale
+             subresource", porque um Job nao tem subresource de escala. */}}
+        app.kubernetes.io/component: app
     spec:
       serviceAccountName: {{ include "todolist.fullname" . }}
       automountServiceAccountToken: true
