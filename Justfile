@@ -21,7 +21,14 @@ configure GITHUB_USER:
 
 # ESTE E O UNICO COMANDO. Do zero ate tudo no ar.
 up:
-    cd {{ansible_dir}} && ansible-playbook site.yml
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd {{ansible_dir}}
+    if [ -f ../.vault-pass ]; then
+        ansible-playbook site.yml --vault-password-file ../.vault-pass
+    else
+        ansible-playbook site.yml
+    fi
 
 # Destroi o cluster E o estado do Terraform
 down:
