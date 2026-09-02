@@ -26,7 +26,10 @@ jobs:
 
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
-        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+        # Bloco, nao flow-mapping: "{ K: ${{ ... }} }" nao faz parse -- o `}}`
+        # da expressao fecha o mapping cedo demais e sobra uma chave solta.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: shellcheck
         run: sudo apt-get install -y shellcheck && shellcheck scripts/*.sh
