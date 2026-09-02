@@ -4,7 +4,7 @@
 - name: Verificar binarios obrigatorios
   ansible.builtin.command: "which {{ item }}"
   changed_when: false
-  loop: [docker, k3d, kubectl, helm, terraform, argocd]
+  loop: [docker, k3d, kubectl, helm, terraform, argocd, jq]
   register: _bin
   failed_when: _bin.rc != 0
   # Falha aqui significa que o setup.sh nao rodou. A mensagem do `which` ja diz

@@ -16,6 +16,7 @@ KUBE_LINTER_VERSION="v0.7.2"
 SHELLCHECK_VERSION="v0.10.0"
 ANSIBLE_LINT_VERSION="26.8.0"
 HEY_VERSION="v0.1.5"
+JQ_VERSION="jq-1.8.2"
 
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 mkdir -p "$BIN_DIR"
@@ -121,6 +122,15 @@ install_kubeconform() {
     | tar -xz -C "$BIN_DIR" kubeconform
 }
 
+# jq e usado pelo Justfile (secrets-rotate), pelo scripts/e2e.sh e pelo fix de
+# CoreDNS do k3d_cluster. Nem toda instalacao "minimal" de Ubuntu/Arch traz.
+install_jq() {
+  have jq && [[ "$(jq --version)" == *"${JQ_VERSION#jq-}"* ]] && return
+  log "jq ${JQ_VERSION#jq-}"
+  curl -fsSL "https://github.com/jqlang/jq/releases/download/${JQ_VERSION}/jq-linux-${ARCH}" -o "$BIN_DIR/jq"
+  chmod +x "$BIN_DIR/jq"
+}
+
 # kube-linter e shellcheck nao tem versao pinada consistente nos repos oficiais
 # de ambas as distros (o Arch as vezes empacota mais novo que o Ubuntu LTS) --
 # baixar o binario da release fixa a versao igual nos dois sistemas, que e o
@@ -176,6 +186,7 @@ install_terraform
 install_just
 install_argocd
 install_kubeconform
+install_jq
 install_kube_linter
 install_shellcheck
 install_ansible
