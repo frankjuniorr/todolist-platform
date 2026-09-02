@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: PLACEHOLDER_REPO_URL
+    repoURL: https://github.com/frankjuniorr/todolist-platform.git
     targetRevision: main
     path: charts/todolist
     helm:

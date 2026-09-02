@@ -16,7 +16,7 @@ terraform_dir: "{{ repo_dir }}/terraform"
 
 # URL do repositorio GitOps. O Argo CD le os manifests daqui, entao ele precisa
 # apontar para o repositorio publicado -- nao para o clone local.
-gitops_repo_url: "https://github.com/CHANGEME/todolist-platform.git"
+gitops_repo_url: "https://github.com/frankjuniorr/todolist-platform.git"
 gitops_repo_revision: main
 
 vault_namespace: vault

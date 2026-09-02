@@ -12,7 +12,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: PLACEHOLDER_REPO_URL   # substituido pelo Ansible a partir do inventario
+    repoURL: https://github.com/frankjuniorr/todolist-platform.git   # substituido pelo Ansible a partir do inventario
     targetRevision: main
     path: gitops/apps
     directory:

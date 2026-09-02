@@ -2,7 +2,7 @@
 # ABOUTME: Esta separacao e o ponto do 12-factor: o mesmo chart, ambientes diferentes.
 
 image:
-  repository: ghcr.io/CHANGEME/todolist-app
+  repository: ghcr.io/frankjuniorr/todolist-app
   # Digest, nao tag. Uma tag pode ser reescrita apontando para outro conteudo;
   # um digest e o hash do manifesto e nao pode mentir. Este campo e atualizado
   # automaticamente pelo workflow image-bump.yml.

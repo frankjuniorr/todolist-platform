@@ -1,6 +1,6 @@
 # todolist-platform
 
-Ambiente completo da aplicação [todolist-app](https://github.com/CHANGEME/todolist-app)
+Ambiente completo da aplicação [todolist-app](https://github.com/frankjuniorr/todolist-app)
 em Kubernetes, do zero, com **um comando**.
 
 ```bash
