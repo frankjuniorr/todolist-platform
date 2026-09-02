@@ -36,6 +36,15 @@
     - fs.inotify.max_user_instances
     - fs.inotify.max_user_watches
 
+- name: Mapear os limites atuais de inotify
+  ansible.builtin.set_fact:
+    current_inotify: "{{ dict(_inotify.results | map(attribute='item') | zip(_inotify.results | map(attribute='stdout'))) }}"
+
+# `become: true` so e acionado quando o valor atual e insuficiente. O setup.sh
+# (Day -1) ja faz este ajuste com persistencia em /etc/sysctl.d -- rodar aqui
+# de novo, incondicionalmente, pediria senha de sudo numa maquina sem
+# passwordless sudo configurado para isso, quebrando "um comando sobe tudo"
+# mesmo quando nao ha nada a fazer.
 - name: Elevar os limites de inotify
   ansible.posix.sysctl:
     name: "{{ item.name }}"
@@ -47,6 +56,7 @@
   loop:
     - { name: fs.inotify.max_user_instances, value: "512" }
     - { name: fs.inotify.max_user_watches, value: "524288" }
+  when: (current_inotify[item.name] | int) < (item.value | int)
   # ESTA E A CAUSA NUMERO 1 DE "FUNCIONA NA MINHA MAQUINA".
   #
   # O default do Ubuntu para max_user_instances e 128. Quatro nodes k3s, mais
