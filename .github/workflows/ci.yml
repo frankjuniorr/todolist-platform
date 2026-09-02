@@ -38,7 +38,15 @@ jobs:
         uses: raven-actions/actionlint@v2
 
       - name: ansible-lint
-        uses: ansible/ansible-lint@v24
+        # A action ansible/ansible-lint@v24 tem lockfile proprio que, no momento
+        # em que isto foi escrito, instalava ansible-lint 24.12.2 junto de um
+        # ansible-core incompativel (ModuleNotFoundError em
+        # ansible.parsing.yaml.constructor) -- quebra vinda de dentro da action,
+        # nao do nosso codigo. pip com versao pinada evita depender do lockfile
+        # dela, e usa a mesma versao ja validada localmente.
+        run: |
+          python3 -m pip install --user "ansible-lint==26.8.0"
+          python3 -m ansiblelint ansible/
 
   terraform:
     runs-on: ubuntu-latest
