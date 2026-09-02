@@ -12,6 +12,11 @@ git checkout -b "$BRANCH"
 git commit -am "bump todolist para $DIGEST"
 git push -u origin "$BRANCH"
 
+# Cria o label se ainda nao existir -- um `gh repo create` novo nao vem com
+# ele, e depender de alguem criar na mao pela UI quebraria a reprodutibilidade
+# na primeira vez que este workflow rodasse num repositorio novo.
+gh label create automated --color 0e8a16 --description "Aberto automaticamente por um workflow" 2>/dev/null || true
+
 gh pr create \
   --title "bump todolist para $DIGEST" \
   --body "Digest publicado por \`todolist-app\`. O Argo CD sincroniza apos o merge." \
