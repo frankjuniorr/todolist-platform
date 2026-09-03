@@ -113,7 +113,12 @@ demo-chaos:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "--- matando um pod da aplicacao"
-    kubectl -n {{ns}} delete pod -l app.kubernetes.io/name=todolist --wait=false | head -1
+    # component=app: sem isso o seletor tambem casa com o historico de pods
+    # do CronJob de limpeza (Completed/Error acumulados). E sem pipe para
+    # head -1: com pipefail, se o kubectl tenta imprimir mais de uma linha
+    # de "deleted" e o head fecha o pipe cedo, o kubectl recebe SIGPIPE e o
+    # script inteiro morre com exit 141 antes de chegar no drain do node.
+    kubectl -n {{ns}} delete pod -l app.kubernetes.io/name=todolist,app.kubernetes.io/component=app --wait=false
     echo "--- drenando um agent (o PDB precisa segurar em 1 indisponivel)"
     NODE=$(kubectl get nodes -o name | grep agent | head -1)
     kubectl drain "${NODE#node/}" --ignore-daemonsets --delete-emptydir-data --timeout=120s
@@ -122,7 +127,10 @@ demo-chaos:
     PRIMARY=$(kubectl -n {{ns}} get pods -l cnpg.io/instanceRole=primary -o name | head -1)
     kubectl -n {{ns}} delete "$PRIMARY"
     echo "--- selando o Vault (o unsealer deve reabrir em ~10s)"
-    kubectl -n vault exec vault-0 -- vault operator seal || true
+    # sys/seal exige um token com permissao para selar -- sem VAULT_TOKEN,
+    # o exec roda sem autenticacao e leva 403 permission denied.
+    TOKEN=$(jq -r .root_token .vault-keys.json)
+    kubectl -n vault exec vault-0 -- env VAULT_TOKEN="$TOKEN" vault operator seal || true
     sleep 20
     kubectl -n vault exec vault-0 -- vault status || true
 
