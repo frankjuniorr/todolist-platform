@@ -66,6 +66,9 @@ urls:
     @cat .app-credentials 2>/dev/null || echo "(sem .app-credentials -- rode 'just up')"
     @echo
     @cat .argocd-admin 2>/dev/null    || echo "(sem .argocd-admin)"
+    @echo
+    @echo "vault:    login pelo metodo Token"
+    @jq -r '"  token:  " + .root_token' .vault-keys.json 2>/dev/null || echo "  (sem .vault-keys.json)"
 
 # Segue os logs da aplicacao
 logs:
