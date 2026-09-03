@@ -17,8 +17,19 @@ spec:
           # watchGlobally=false + anotacao explicita nos Deployments.
           # O modo `auto` reiniciaria qualquer workload cujo Secret mudasse,
           # inclusive os do proprio Argo CD -- efeito colateral indesejado.
+          #
+          # NAO adicionar namespaceSelector aqui: a Role/RoleBinding do chart
+          # (Role namespaced, nao ClusterRole) ja restringe o Reloader a
+          # enxergar Secrets/ConfigMaps soh no namespace onde ele roda -- o
+          # isolamento que namespaceSelector tentaria promete ja esta feito.
+          # Pior: Namespace e um recurso cluster-scoped, e uma Role NUNCA
+          # consegue conceder list/watch sobre ele (RoleBinding+ClusterRole
+          # tambem nao, por definicao do RBAC). Com namespaceSelector setado,
+          # o Reloader tenta listar Namespaces pra casar o selector, recebe
+          # Forbidden pra sempre, e o gate de "o namespace bate o selector?"
+          # fica permanentemente falso -- reload nunca dispara, em silencio,
+          # sem nenhum erro que aponte para isso na hora do rollout.
           watchGlobally: false
-          namespaceSelector: todolist
           deployment:
             resources:
               requests: { cpu: 10m, memory: 32Mi }

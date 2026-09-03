@@ -69,7 +69,11 @@ urls:
 
 # Segue os logs da aplicacao
 logs:
-    kubectl -n {{ns}} logs -l app.kubernetes.io/name=todolist -f --tail=100
+    # component=app filtra os pods do CronJob de limpeza, que carregam o
+    # mesmo app.kubernetes.io/name -- sem isso, kubectl logs -l tenta seguir
+    # um stream por pod (inclusive os ja Completed/Error) e estoura o limite
+    # padrao de 5 concorrentes assim que o CronJob acumula historico.
+    kubectl -n {{ns}} logs -l app.kubernetes.io/name=todolist,app.kubernetes.io/component=app -f --tail=100
 
 # --- Secrets ------------------------------------------------------------------
 
