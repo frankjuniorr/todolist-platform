@@ -78,6 +78,21 @@ logs:
     # padrao de 5 concorrentes assim que o CronJob acumula historico.
     kubectl -n {{ns}} logs -l app.kubernetes.io/name=todolist,app.kubernetes.io/component=app -f --tail=100
 
+# Abre um psql interativo no primario do Postgres
+psql:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # enableSuperuserAccess=false no Cluster do CNPG -- nao ha role `postgres`.
+    # A senha do owner vem do mesmo Secret basic-auth que o CloudNativePG
+    # gerencia (todolist-db). -h 127.0.0.1 e obrigatorio: sem host, o psql usa
+    # o socket Unix, e o pg_hba do CNPG autentica conexao local por socket via
+    # `peer` (compara o usuario do SO dentro do container, `postgres`, com o
+    # role) -- PGPASSWORD e ignorado nesse caminho e a conexao cai com "Peer
+    # authentication failed". Forcar TCP usa a regra `host`, que exige senha.
+    PRIMARY=$(kubectl -n {{ns}} get pods -l cnpg.io/instanceRole=primary -o jsonpath='{.items[0].metadata.name}')
+    PASSWORD=$(kubectl -n {{ns}} get secret todolist-db -o jsonpath='{.data.password}' | base64 -d)
+    kubectl -n {{ns}} exec -it "$PRIMARY" -- env PGPASSWORD="$PASSWORD" psql -h 127.0.0.1 -U todolist -d todolist
+
 # --- Secrets ------------------------------------------------------------------
 
 # Cria o vault.yml cifrado a partir do exemplo
