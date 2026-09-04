@@ -64,12 +64,36 @@ pkg_install() {
 }
 
 # --- Docker -------------------------------------------------------------------
+# Nao instalado automaticamente feito o resto: nao e um binario estatico, e um
+# daemon de sistema (systemd, cgroups, grupo unix) cuja instalacao diverge de
+# verdade entre distros, e o `usermod -aG docker` so vale numa sessao NOVA --
+# nenhum script consegue deixar isso pronto para uso no mesmo processo que o
+# instalou. Preferi apontar o comando certo por distro a arriscar atropelar
+# uma instalacao (Docker Desktop, Podman, DOCKER_HOST remoto) que a pessoa ja
+# tenha configurado de proposito.
 if ! have docker; then
-  echo "Docker nao encontrado. Instale o Docker Engine e adicione seu usuario ao" >&2
-  echo "grupo docker antes de continuar: https://docs.docker.com/engine/install/" >&2
+  echo "Docker nao encontrado." >&2
+  case "$PKG_FAMILY" in
+    arch)
+      echo "instale e habilite:" >&2
+      echo "  sudo pacman -S --needed docker docker-compose" >&2
+      echo "  sudo systemctl enable --now docker" >&2
+      echo "  sudo usermod -aG docker \$USER" >&2
+      ;;
+    debian)
+      echo "o pacote docker.io do apt costuma ficar desatualizado -- use o repositorio oficial:" >&2
+      echo "  https://docs.docker.com/engine/install/ubuntu/" >&2
+      echo "  sudo systemctl enable --now docker" >&2
+      echo "  sudo usermod -aG docker \$USER" >&2
+      ;;
+    *)
+      echo "instale o Docker Engine: https://docs.docker.com/engine/install/" >&2
+      ;;
+  esac
+  echo "depois, faca logout/login (ou 'newgrp docker') -- o grupo so vale numa sessao nova." >&2
   exit 1
 fi
-docker info >/dev/null 2>&1 || { echo "o daemon do Docker nao responde." >&2; exit 1; }
+docker info >/dev/null 2>&1 || { echo "o daemon do Docker nao responde -- 'sudo systemctl start docker'?" >&2; exit 1; }
 
 # --- Binarios -------------------------------------------------------------------
 install_kubectl() {
