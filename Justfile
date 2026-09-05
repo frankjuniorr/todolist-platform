@@ -46,13 +46,20 @@ recreate: down up
 
 # Estado geral do ambiente
 status:
-    @echo "=== nodes ==="        && kubectl get nodes
-    @echo "=== applications ===" && kubectl -n argocd get applications.argoproj.io
-    @echo "=== pods ({{ns}}) ===" && kubectl -n {{ns}} get pods
-    @echo "=== hpa / pdb ==="    && kubectl -n {{ns}} get hpa,pdb
-    @echo "=== postgres ==="     && kubectl -n {{ns}} get cluster.postgresql.cnpg.io
-    @echo "=== externalsecrets ===" && kubectl -n {{ns}} get externalsecret
-    @echo "=== invariante: exatamente 1 CronJob ==="
+    @echo
+    @echo "================== nodes ==================" && kubectl get nodes
+    @echo
+    @echo "================== applications ==================" && kubectl -n argocd get applications.argoproj.io
+    @echo
+    @echo "================== pods ({{ns}}) ==================" && kubectl -n {{ns}} get pods
+    @echo
+    @echo "================== hpa / pdb ==================" && kubectl -n {{ns}} get hpa,pdb
+    @echo
+    @echo "================== postgres ==================" && kubectl -n {{ns}} get cluster.postgresql.cnpg.io
+    @echo
+    @echo "================== externalsecrets ==================" && kubectl -n {{ns}} get externalsecret
+    @echo
+    @echo "================== invariante: exatamente 1 CronJob =================="
     @test "$(kubectl -n {{ns}} get cronjob --no-headers | wc -l)" -eq 1 \
       && echo "OK" \
       || echo "FALHOU -- /pods e /cleanup/status vao quebrar em silencio"
