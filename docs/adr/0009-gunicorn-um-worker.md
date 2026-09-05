@@ -22,9 +22,8 @@ pelo HPA.
   `CREATE TABLE IF NOT EXISTS` é idempotente no caso comum.
 - A carga é I/O-bound (consultas ao Postgres, chamadas à API do Kubernetes), e
   threads atendem isso bem — o GIL é liberado durante I/O.
-- **É a resposta mais nativa de Kubernetes**: escalar por réplica, não por
-  processo dentro do contêiner. O que o requisito de escalabilidade quer ver é
-  exatamente isso.
+- **É o padrão de escalabilidade nativo do Kubernetes**: escalar por réplica,
+  não por processo dentro do contêiner.
 - Um endpoint CPU-bound saturaria o pod antes do esperado. Não há nenhum nesta
   aplicação.
 

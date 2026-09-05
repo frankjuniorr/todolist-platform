@@ -128,7 +128,6 @@ Levantados lendo `app.py`, não a documentação. Quebrar qualquer um deles falh
 
 - `docs/adr/` — uma decisão por arquivo, com as alternativas descartadas
 - `docs/runbook.md` — o que fazer quando algo quebra
-- `docs/desafios-encontrados.md` — as armadilhas reais, anotadas quando doeram
 - Wiki do repositório — versão navegável, com capturas de tela
 
 ## Dois bugs encontrados na aplicação

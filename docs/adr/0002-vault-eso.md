@@ -1,6 +1,6 @@
 # ADR 0002 — HashiCorp Vault no cluster + External Secrets Operator
 
-**Status:** aceito · **Este é o item de maior risco da entrega**
+**Status:** aceito · **Este é o componente de maior risco operacional do ambiente**
 
 ## Contexto
 
@@ -24,25 +24,27 @@ os Secrets do Kubernetes.
 - **O Vault re-sela a cada restart do pod.** Sem KMS, não há auto-unseal — daí
   o ADR 0005.
 - É a peça com mais superfícies de falha silenciosa: mismatch de audience no
-  TokenRequest, política errada, caminho kv-v1 vs kv-v2. Um dia inteiro de
-  orçamento reservado, com checkpoint go/no-go.
+  TokenRequest, política errada, caminho kv-v1 vs kv-v2. Reservar tempo de
+  validação dedicado a esta integração, com um checkpoint go/no-go, compensa.
 
 ## Alternativas descartadas
 
-**1Password Connect Operator.** Tenho conta. O problema é conceitual: o Connect
-precisa de um token e de um arquivo de credenciais **injetados antes** — ou seja,
-um secret de bootstrap para o sistema que existe para gerenciar secrets. O
-chicken-and-egg não some, só muda de lugar. Some ainda a dependência de internet
-e de uma conta que quem avalia não tem.
+**1Password Connect Operator.** Opção viável em outros contextos. O problema é
+conceitual: o Connect precisa de um token e de um arquivo de credenciais
+**injetados antes** — ou seja, um secret de bootstrap para o sistema que existe
+para gerenciar secrets. O chicken-and-egg não some, só muda de lugar. Some ainda
+a dependência de internet e de uma conta em serviço de terceiros que o ambiente
+não deveria precisar para subir do zero.
 
 **Sealed Secrets.** Resolve o problema do Git com elegância e quase sem custo.
 Descartado porque cifra *para um cluster específico*: a chave privada vive no
 controller, e recriar o cluster invalida todos os SealedSecrets já commitados —
-exatamente o oposto da reprodutibilidade que o R1 pede. É o plano B declarado.
+exatamente o oposto da reprodutibilidade que o ambiente exige. É o plano B
+declarado.
 
-**SOPS + age (com KSOPS).** Bom, portátil, e o plano B real se o Vault falhar no
-checkpoint. Perde porque não é um gerenciador de secrets: não tem rotação, nem
+**SOPS + age (com KSOPS).** Bom, portátil, e o plano B real se o Vault falhar na
+validação. Perde porque não é um gerenciador de secrets: não tem rotação, nem
 versionamento, nem auditoria, nem TTL — é cifragem de arquivo.
 
-**Secrets do Kubernetes aplicados na mão.** Honesto sobre a POC, mas deixa de
-demonstrar gestão de secrets de nível produção.
+**Secrets do Kubernetes aplicados na mão.** Aceitável numa prova de conceito
+descartável, mas não entrega gestão de secrets de nível produção.

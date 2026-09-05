@@ -27,10 +27,10 @@ Uma regra só, e ela decide todos os casos:
 - Cada recurso tem exatamente um dono. Não existe recurso disputado.
 - O Terraform administra um punhado de objetos; o `tfstate` fica trivial, e
   `just down` pode simplesmente apagá-lo.
-- Responde diretamente à pergunta original ("o código principal deve ser Ansible,
-  faz sentido?"): **faz, como camada de bootstrap** — não como o motor do
-  ambiente. Ansible orquestrando `kubectl apply` continuamente seria um GitOps
-  pior, sem reconciliação nem detecção de drift.
+- Justifica por que Ansible continua sendo a ferramenta de entrada mesmo com
+  Terraform e Argo CD no meio: ele atua **como camada de bootstrap**, não como
+  o motor do ambiente. Ansible orquestrando `kubectl apply` continuamente seria
+  um GitOps pior, sem reconciliação nem detecção de drift.
 - Cria uma ordem obrigatória: o App-of-Apps é o último passo do playbook, quando
   o Vault já responde. Aplicá-lo antes faria o `ExternalSecret` da wave -3
   encontrar um cofre selado.

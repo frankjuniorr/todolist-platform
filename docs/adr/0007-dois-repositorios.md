@@ -9,7 +9,7 @@ A aplicação já existe num repositório. A plataforma é código novo. Um repo
 ## Decisão
 
 Dois: `todolist-app` (fork, com Dockerfile e CI) e `todolist-platform` (a
-entrega principal). Ambos públicos.
+plataforma que a hospeda). Ambos públicos.
 
 ## Consequências
 
@@ -28,6 +28,6 @@ entrega principal). Ambos públicos.
 ## Alternativas descartadas
 
 **Monorepo.** Mais simples de operar e sem o PAT. Descartado porque apagaria
-justamente a fronteira que a entrega quer demonstrar — e porque um push de
-código da aplicação dispararia a reconciliação da plataforma, acoplando as duas
-esteiras.
+justamente a fronteira entre produto e plataforma que a arquitetura pretende
+impor — e porque um push de código da aplicação dispararia a reconciliação da
+plataforma, acoplando as duas esteiras.

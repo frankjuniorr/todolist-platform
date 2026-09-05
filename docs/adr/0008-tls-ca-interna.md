@@ -4,13 +4,13 @@
 
 ## Contexto
 
-O requisito pede acesso pelo navegador. Não pede HTTPS. Mas um ambiente sem TLS
-não é um ambiente que alguém colocaria em produção, e o objetivo é demonstrar a
-prática correta.
+O acesso é pelo navegador, mas nada exige HTTPS explicitamente. Ainda assim, um
+ambiente sem TLS não é um ambiente que se coloca em produção, e servir tráfego
+criptografado é a prática correta independente de exigência formal.
 
-Let's Encrypt não é possível: exige um domínio público e um desafio ACME
-resolvível de fora — e o ambiente roda em `localhost`, atrás do NAT de quem
-avalia.
+Let's Encrypt não é possível: exige um domínio público e um challenge ACME
+resolvível de fora — e o ambiente roda em `localhost`, atrás de NAT, sem IP
+público.
 
 ## Decisão
 
@@ -28,8 +28,8 @@ cert-manager com uma cadeia de três passos: `ClusterIssuer` self-signed →
 - **`*.localhost`, não `nip.io`.** O systemd-resolved do Ubuntu resolve
   `qualquer-coisa.localhost` para 127.0.0.1 nativamente, sem DNS externo.
   `nip.io` e `sslip.io` falham em redes com proteção contra DNS rebinding
-  (dnsmasq, pi-hole, resolvers corporativos) — que é um jeito frequente e
-  humilhante de uma demonstração morrer.
+  (dnsmasq, pi-hole, resolvers corporativos) — uma causa de indisponibilidade
+  difícil de diagnosticar à distância.
 - Recursos **`Ingress`, não `IngressRoute`** do Traefik: o ingress-shim do
   cert-manager só observa `Ingress`, então a anotação emite o certificado
   sozinha. Com `IngressRoute` seria um `Certificate` manual por host — e o

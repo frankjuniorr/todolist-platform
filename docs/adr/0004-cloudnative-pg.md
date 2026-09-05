@@ -4,9 +4,9 @@
 
 ## Contexto
 
-A aplicação precisa de PostgreSQL. O requisito de resiliência pede que o
-ambiente sobreviva à perda de um componente — e um banco é o componente mais
-difícil de tornar resiliente.
+A aplicação precisa de PostgreSQL. A plataforma precisa sobreviver à perda de
+um componente sem intervenção manual — e um banco é o componente mais difícil
+de tornar resiliente.
 
 ## Decisão
 
@@ -16,20 +16,21 @@ produzido pelo ESO.
 
 ## Consequências
 
-- **Failover automático demonstrável**: matar o pod primário e ver o operator
-  promover uma réplica e reapontar o Service `-rw` em segundos. Isso é
-  resiliência que dá para mostrar, não afirmar.
+- **Failover automático verificável**: matar o pod primário e observar o
+  operator promover uma réplica e reapontar o Service `-rw` em segundos.
 - A aplicação aponta para o Service `-rw`, então o failover não exige mudança de
   configuração.
 - `spec.managed.roles` reconcilia a senha continuamente. Sem isso, `bootstrap.
   initdb` rodaria uma vez só e uma rotação futura no Vault atualizaria o Secret
   sem tocar no banco — a aplicação passaria a mandar a senha nova para um role
   com a senha antiga. Outage total, causa não óbvia.
-- Custa ~1 GB de RAM a mais que uma instância única. Se a máquina de quem avalia
-  for apertada, `postgres.instances: 1` é o primeiro corte.
-- **Ser honesto na apresentação:** três instâncias num único host, com PVs
-  `local-path` que são node-affine, não é HA de verdade. É a topologia correta
-  demonstrada num substrato que não a sustenta.
+- Custa ~1 GB de RAM a mais que uma instância única. Em hosts com recursos
+  limitados, `postgres.instances: 1` é o primeiro corte.
+- **Limitação a registrar:** três instâncias num único host, com PVs
+  `local-path` que são node-affine, não é HA de verdade — se o host cair, as
+  três instâncias caem juntas. É a topologia correta rodando sobre um substrato
+  de storage que não a sustenta plenamente; em produção isso exige storage
+  replicado entre hosts (Longhorn, Ceph, ou um serviço gerenciado).
 
 ## Alternativas descartadas
 

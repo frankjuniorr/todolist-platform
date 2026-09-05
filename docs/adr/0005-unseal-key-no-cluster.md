@@ -7,7 +7,7 @@
 O Vault sela a si mesmo a cada restart do pod. Auto-unseal exige um KMS externo
 (AWS KMS, GCP KMS, Azure Key Vault, ou outro Vault). Não há nenhum disponível, e
 um ambiente que precisa de intervenção manual depois de um reboot não é
-auto-suficiente — que era o requisito.
+auto-suficiente, e essa é uma exigência real de continuidade operacional.
 
 ## Decisão
 
@@ -18,7 +18,7 @@ cofre e o destranca em ~10 s sempre que ele aparece selado.
 ## Consequências
 
 - O ambiente se recupera sozinho de reboot, de `docker restart`, e de qualquer
-  restart do pod. É o que torna o "um comando" verdadeiro depois do primeiro dia.
+  restart do pod, sem exigir um operador acordado para destrancar o cofre.
 - **A ressalva, dita em voz alta:** a chave que protege o cofre está guardada no
   mesmo cluster que o cofre protege. Na prática, o Vault fica *tão seguro quanto
   o etcd*. Quem tiver `get secret` no namespace `vault` tem o cofre.
@@ -28,8 +28,8 @@ cofre e o destranca em ~10 s sempre que ele aparece selado.
 - **Reconhecer isso explicitamente vale mais do que fingir que o desenho é
   seguro.** O erro real em engenharia não é ter uma limitação; é não saber que
   ela existe.
-- Bônus de demonstração, custo zero: `vault operator seal` e ver o ambiente se
-  recuperar sozinho.
+- A recuperação é fácil de validar sem custo adicional: `vault operator seal` e
+  observar o ambiente se destrancar sozinho.
 
 ## Detalhe de implementação que custou tempo
 

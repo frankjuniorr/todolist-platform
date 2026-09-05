@@ -21,7 +21,7 @@ abre um PR com auto-merge. O Argo CD sincroniza depois do merge.
   `git revert`.
 - Branch protection se aplica: o bump passa pelos mesmos checks que qualquer
   mudança (`helm template | kubeconform`).
-- Demonstrável ao vivo, sem caixa-preta de polling.
+- Auditável em tempo real, sem caixa-preta de polling.
 - Custa três detalhes de GitHub que só aparecem quando quebram:
   - `GITHUB_TOKEN` **não dispara workflow em outro repositório** → o dispatch
     precisa de um PAT fine-grained.
